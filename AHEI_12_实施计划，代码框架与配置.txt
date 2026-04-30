@@ -1,0 +1,989 @@
+================================================================================
+                    AHEI (智核) 项目交接文档 - 文档12（Godot 4.x 引擎适配版）
+                    文档名称：实施计划、代码框架与配置
+                    全称：Autonomous Homeostatic Embodied Intelligence
+                    中文：自主稳态具身智能
+                    简称：AHEI（读作“诶-嘿”）
+                    中文名：智核
+                    创建者：魏旭
+                    最后更新：2026年4月30日
+================================================================================
+
+⚠️ 致接手本项目的AI或开发者：
+    本文档是AHEI项目十二份交接文档的最后一份（已完全适配Godot 4.x引擎），
+    涵盖Godot项目文件结构与完整目录树、全局配置与Autoload单例设计、
+    核心代码框架（主入口、世界管理、角色控制、UI系统）、关键数据结构定义、
+    分阶段实施路线图（含Godot专项）、常见问题与给接手AI的启动指令。
+    
+    本文档已完全替换原Ursina版本，所有实施细节均基于Godot 4.x引擎。
+    请结合前十一份文档一起阅读。
+
+
+=============================
+          完整目录
+=============================
+
+第一章   Godot项目文件结构与完整目录树
+  1.1   完整目录树
+  1.2   各目录职责说明
+  1.3   文件统计
+
+第二章   全局配置与Autoload单例设计
+  2.1   Autoload单例清单
+  2.2   GameState单例（核心全局状态）
+  2.3   MaterialRegistry单例
+  2.4   Registry单例（模组注册表）
+  2.5   ModManager单例
+  2.6   SaveManager单例
+  2.7   EcosystemManager单例
+
+第三章   核心场景结构
+  3.1   主场景（main.tscn）
+  3.2   主菜单场景（main_menu.tscn）
+  3.3   世界创建场景（world_creation.tscn）
+  3.4   设置场景（settings.tscn）
+  3.5   全知面板场景（global_panel.tscn）
+
+第四章   核心代码框架
+  4.1   主入口（main.gd）
+  4.2   世界管理器（world_manager.gd）
+  4.3   角色控制器（player_controller.gd — 降临模式）
+  4.4   观察者摄像机（spectator_camera.gd）
+  4.5   地形生成器（terrain_generator.gd）
+
+第五章   关键数据结构定义
+  5.1   基因组（Genome — GDScript Resource）
+  5.2   记忆条目（MemoryEntry）
+  5.3   感官向量（SensoryVector）
+  5.4   物质属性（MaterialData — GDScript Resource）
+  5.5   工具/武器数据（ToolData — GDScript Resource）
+
+第六章   分阶段实施路线图（Godot版）
+  6.1   第0阶段：环境搭建
+  6.2   第1阶段：3D世界+自由摄像机+地形
+  6.3   第2阶段：植被、矿物、水体放置
+  6.4   第3阶段：玩家角色+降临模式+物理交互
+  6.5   第4阶段：UI系统（主菜单、HUD、全知面板）
+  6.6   第5阶段：时间系统+昼夜+天气
+  6.7   第6阶段：模组系统+跨模型适配
+  6.8   第7阶段：AHEI智能体集成
+
+第七章   常见问题（FAQ）
+
+第八章   给接手AI的启动指令
+
+
+================================================================================
+第一章   Godot项目文件结构与完整目录树
+================================================================================
+
+1.1 完整目录树
+
+ahei_godot_project/
+│
+├── project.godot                     # Godot项目配置文件
+├── default_env.tres                  # 默认环境资源
+│
+├── scenes/                           # 场景文件
+│   ├── main.tscn                     # 主场景（游戏运行时）
+│   ├── main_menu.tscn                # 主菜单场景
+│   ├── world_creation.tscn           # 世界创建子菜单
+│   ├── settings.tscn                 # 设置子菜单
+│   ├── global_panel.tscn             # 全知面板场景
+│   ├── pause_menu.tscn               # 暂停菜单
+│   └── hud.tscn                      # HUD场景
+│
+├── scripts/                          # 脚本文件（GDScript）
+│   ├── autoload/                     # Autoload单例
+│   │   ├── game_state.gd             # GameState — 核心全局状态
+│   │   ├── material_registry.gd      # MaterialRegistry — 物质属性注册表
+│   │   ├── registry.gd               # Registry — 模组注册表
+│   │   ├── mod_manager.gd            # ModManager — 模组管理器
+│   │   ├── save_manager.gd           # SaveManager — 存档管理
+│   │   ├── ecosystem_manager.gd      # EcosystemManager — 生态数据管理
+│   │   └── event_bus.gd              # EventBus — 全局事件总线
+│   │
+│   ├── world/                        # 世界层脚本
+│   │   ├── world_manager.gd          # 世界管理器
+│   │   ├── terrain_generator.gd      # 地形生成器
+│   │   ├── chunk_manager.gd          # 分块加载管理
+│   │   ├── weather_system.gd         # 天气系统
+│   │   ├── season_system.gd          # 季节系统
+│   │   └── water_system.gd           # 水体系统
+│   │
+│   ├── vegetation/                   # 植被系统
+│   │   ├── tree_spawner.gd           # 树木生成器
+│   │   ├── bush_spawner.gd           # 灌木生成器
+│   │   └── grass_multimesh.gd        # 草MultiMesh管理
+│   │
+│   ├── minerals/                     # 矿物系统
+│   │   └── ore_spawner.gd            # 矿物生成器
+│   │
+│   ├── player/                       # 玩家/降临系统
+│   │   ├── player_controller.gd      # 玩家控制器
+│   │   ├── avatar_ahei.gd            # 化身AHEI类
+│   │   └── player_interaction.gd     # 玩家交互（射线检测等）
+│   │
+│   ├── camera/                       # 摄像机系统
+│   │   ├── spectator_camera.gd       # 观察者自由摄像机
+│   │   └── follow_camera.gd          # 追踪摄像机
+│   │
+│   ├── ui/                           # UI脚本
+│   │   ├── main_menu_ui.gd           # 主菜单UI逻辑
+│   │   ├── global_panel_ui.gd        # 全知面板UI逻辑
+│   │   ├── hud_ui.gd                 # HUD逻辑
+│   │   └── pause_menu_ui.gd          # 暂停菜单逻辑
+│   │
+│   ├── physics/                      # 物理系统
+│   │   ├── material_data.gd          # MaterialData Resource类
+│   │   ├── destroyable_object.gd     # 可破坏物体基类
+│   │   ├── container.gd             # 物理容器类
+│   │   └── pickup_item.gd           # 可拾取物品类
+│   │
+│   ├── ai/                           # AI系统（后期集成）
+│   │   ├── ahei_brain.gd             # AHEI大脑（与Python通信桥接）
+│   │   └── ai_teacher_connector.gd   # AI教师连接器
+│   │
+│   └── tools/                        # 工具脚本
+│       ├── skeleton_mapper.gd        # 通用骨骼映射器
+│       ├── noise_util.gd             # 噪声工具
+│       └── json_util.gd              # JSON工具
+│
+├── resources/                        # 资源文件（.tres等）
+│   ├── materials/                    # MaterialData资源
+│   │   ├── stone_granite.tres
+│   │   ├── wood_oak.tres
+│   │   ├── metal_copper.tres
+│   │   ├── metal_iron.tres
+│   │   └── ...（按物质元素表创建）
+│   ├── items/                        # 物品定义资源
+│   ├── tools/                        # 工具定义资源
+│   ├── weapons/                      # 武器定义资源
+│   └── recipes/                      # 制作配方资源
+│
+├── models/                           # 3D模型文件（.glb/.gltf）
+│   ├── geometric/                    # 程序化几何体（预留，可在代码中生成）
+│   ├── anime/                        # 二次元角色模型
+│   ├── realistic/                    # 写实人体模型
+│   └── custom/                       # 用户自定义模型
+│
+├── textures/                         # 纹理文件
+│   ├── terrain/                      # 地形纹理
+│   ├── vegetation/                   # 植被纹理
+│   ├── minerals/                     # 矿物纹理
+│   ├── ui/                           # UI纹理
+│   └── sky/                          # 天空纹理
+│
+├── sounds/                           # 声音文件
+│   ├── ambient/                      # 环境音
+│   ├── interactions/                 # 交互音效
+│   └── voice/                        # 语音（AHEI发声/AI教师中文）
+│
+├── mods/                             # 模组目录
+│   └── example_mod/
+│       ├── mod_info.json
+│       └── init.gd
+│
+├── data/                             # 运行时数据（user://）
+│   ├── saves/                        # 存档文件
+│   ├── logs/                         # 日志文件
+│   └── genomes/                      # 基因组存档
+│
+└── tests/                            # 单元测试（GUT插件）
+    ├── test_terrain.gd
+    ├── test_material.gd
+    └── test_mod_system.gd
+
+1.2 各目录职责说明
+
+| 目录 | 职责 | 核心文件数量 |
+|------|------|-----------|
+| scenes/ | 所有.tscn场景文件 | 7 |
+| scripts/autoload/ | 全局单例系统 | 7 |
+| scripts/world/ | 地形、天气、季节 | 6 |
+| scripts/vegetation/ | 植物生成与管理 | 3 |
+| scripts/minerals/ | 矿物生成 | 1 |
+| scripts/player/ | 玩家控制与交互 | 3 |
+| scripts/camera/ | 自由摄像机与追踪摄像机 | 2 |
+| scripts/ui/ | 所有UI界面逻辑 | 4 |
+| scripts/physics/ | 物理属性、可破坏物体、容器 | 4 |
+| scripts/ai/ | AI大脑桥接与教师连接器 | 2 |
+| scripts/tools/ | 骨骼映射、噪声、JSON等工具 | 3 |
+| resources/ | 所有.tres资源定义 | 多个子目录 |
+| models/ | 3D模型文件 | 4个文件夹 |
+| textures/ | 纹理图片 | 4个文件夹 |
+| sounds/ | 音频文件 | 3个文件夹 |
+| mods/ | 模组存储 | 目录 |
+| data/ | 运行时数据 | 3个文件夹 |
+
+1.3 文件统计
+
+    场景文件：7个.tscn
+    GDScript脚本：约45个.gd文件
+    资源文件：约50+个.tres
+    模型/纹理/音频：待导入
+    模组加载完全基于文件系统，无需额外注册表文件。
+
+
+================================================================================
+第二章   全局配置与Autoload单例设计
+================================================================================
+
+2.1 Autoload单例清单
+
+    在Godot中，Autoload是全局可访问的单例节点，在项目设置中配置。
+    所有单例在游戏启动时自动加载，提供全局数据和服务。
+
+| 单例名称 | 脚本文件 | 职责 |
+|---------|---------|------|
+| GameState | game_state.gd | 核心全局状态：时间、世界参数、当前模式 |
+| MaterialRegistry | material_registry.gd | 加载和管理所有MaterialData资源 |
+| Registry | registry.gd | 模组注册表，存储所有模组添加的物品/矿物/植物等 |
+| ModManager | mod_manager.gd | 模组加载、校验、版本管理 |
+| SaveManager | save_manager.gd | 存档、读档、自动存档 |
+| EcosystemManager | ecosystem_manager.gd | 生态数据：物种数量、食物链平衡 |
+| EventBus | event_bus.gd | 全局事件总线，用于解耦模块间通信 |
+
+2.2 GameState单例（核心全局状态）
+
+    GameState是全局状态中心，所有需要跨场景、跨模块共享的数据都存储于此。
+
+    ```gdscript
+    # game_state.gd (Autoload)
+    extends Node
+    
+    # 游戏版本
+    var game_version: String = "1.0.0"
+    
+    # 世界设置
+    var world_size: int = 80
+    var world_seed: int = 42
+    var terrain_types: Array[String] = ["plains", "forest", "hills", "mountains", "water", "swamp", "tundra", "volcanic"]
+    var food_count: int = 30
+    var predator_count: int = 3
+    
+    # 时间系统
+    var time_ratio: float = 1.0          # 游戏时间/现实时间
+    var simulation_speed: float = 1.0     # 独立模拟倍率
+    var game_time: float = 0.0            # 游戏总秒数
+    var is_pure_compute_mode: bool = false
+    
+    const DAY_LENGTH: float = 600.0       # 游戏秒/天（默认10分钟）
+    const YEAR_LENGTH: float = 60000.0    # 游戏秒/年（默认100分钟）
+    
+    # 当前模式
+    enum ObservationMode { SPECTATOR, AVATAR, FOLLOW }
+    var current_mode: ObservationMode = ObservationMode.SPECTATOR
+    
+    # 当前选中的AHEI（用于面板显示）
+    var selected_ahei: Node = null
+    
+    # 图形与界面
+    var graphics_quality: String = "medium"
+    var ui_language: String = "chinese"
+    var mouse_sensitivity: float = 0.75
+    var invert_y: bool = false
+    
+    # 时间工具方法
+    func get_current_day() -> int:
+        return int(game_time / DAY_LENGTH)
+    
+    func get_current_season() -> String:
+        var year_progress = fmod(game_time, YEAR_LENGTH) / YEAR_LENGTH
+        if year_progress < 0.25: return "spring"
+        elif year_progress < 0.5: return "summer"
+        elif year_progress < 0.75: return "autumn"
+        else: return "winter"
+    
+    func get_effective_time_multiplier() -> float:
+        return time_ratio * simulation_speed
+    ```
+
+2.3 MaterialRegistry单例
+
+    ```gdscript
+    # material_registry.gd (Autoload)
+    extends Node
+    
+    var materials: Dictionary = {}  # {material_id: MaterialData}
+    
+    func _ready() -> void:
+        _load_all_materials()
+    
+    func _load_all_materials() -> void:
+        var dir = DirAccess.open("res://resources/materials/")
+        if not dir: return
+        dir.list_dir_begin()
+        var file_name = dir.get_next()
+        while file_name != "":
+            if file_name.ends_with(".tres"):
+                var mat = load("res://resources/materials/" + file_name) as MaterialData
+                if mat:
+                    materials[mat.material_id] = mat
+            file_name = dir.get_next()
+    
+    func get_material(id: String) -> MaterialData:
+        return materials.get(id, null)
+    ```
+
+2.4 Registry单例（模组注册表）
+
+    结构与文档10第三章一致，作为Autoload单例存储所有模组注册内容。
+
+2.5 ModManager单例
+
+    结构与文档10第二章一致，负责模组发现、加载、冲突处理。
+
+2.6 SaveManager单例
+
+    ```gdscript
+    # save_manager.gd (Autoload)
+    extends Node
+    
+    const SAVE_DIR = "user://saves/"
+    
+    func save_game(save_name: String) -> bool:
+        DirAccess.make_dir_absolute(SAVE_DIR)
+        var save_data = {
+            "version": GameState.game_version,
+            "world_seed": GameState.world_seed,
+            "game_time": GameState.game_time,
+            "time_ratio": GameState.time_ratio,
+            # ... 其他需要保存的状态
+        }
+        var file = FileAccess.open(SAVE_DIR + save_name + ".sav", FileAccess.WRITE)
+        if not file: return false
+        file.store_string(JSON.stringify(save_data))
+        return true
+    
+    func load_game(save_name: String) -> Dictionary:
+        var file = FileAccess.open(SAVE_DIR + save_name + ".sav", FileAccess.READ)
+        if not file: return {}
+        return JSON.parse_string(file.get_as_text())
+    ```
+
+2.7 EcosystemManager单例
+
+    ```gdscript
+    # ecosystem_manager.gd (Autoload)
+    extends Node
+    
+    var plant_count: int = 0
+    var herbivore_count: int = 0
+    var predator_count: int = 0
+    var ahei_count: int = 0
+    
+    func register_entity(type: String) -> void:
+        match type:
+            "plant": plant_count += 1
+            "herbivore": herbivore_count += 1
+            "predator": predator_count += 1
+            "ahei": ahei_count += 1
+    
+    func unregister_entity(type: String) -> void:
+        match type:
+            "plant": plant_count = max(0, plant_count - 1)
+            "herbivore": herbivore_count = max(0, herbivore_count - 1)
+            "predator": predator_count = max(0, predator_count - 1)
+            "ahei": ahei_count = max(0, ahei_count - 1)
+    ```
+
+
+================================================================================
+第三章   核心场景结构
+================================================================================
+
+3.1 主场景（main.tscn）
+
+    游戏运行时的根场景，结构如下：
+    ```
+    Main (Node3D)
+    ├── World (Node3D)                     # 地形、植被、矿物、水体等
+    │   ├── Terrain (Node3D)               # 地形块集合（由WorldManager动态生成）
+    │   ├── Vegetation (Node3D)            # 植物集合
+    │   ├── Minerals (Node3D)              # 矿物集合
+    │   └── WaterBodies (Node3D)           # 水体集合
+    ├── Cameras (Node)
+    │   ├── SpectatorCamera (Camera3D)     # 观察者自由摄像机
+    │   └── FollowCamera (Camera3D)        # 追踪摄像机
+    ├── Player (CharacterBody3D)           # 玩家化身（初始隐藏）
+    ├── Lighting (Node3D)
+    │   ├── Sun (DirectionalLight3D)       # 太阳光源
+    │   └── Moon (DirectionalLight3D)      # 月亮光源（夜间）
+    ├── Weather (Node3D)                   # 天气粒子系统
+    ├── HUD (Control)                      # 游戏内HUD
+    ├── GlobalPanel (Control)              # 全知面板（初始隐藏）
+    └── PauseMenu (Control)                # 暂停菜单（初始隐藏）
+    ```
+
+3.2 主菜单场景（main_menu.tscn）
+
+    详见文档9第五章的UI布局。
+
+3.3 世界创建场景（world_creation.tscn）
+
+    详见文档9第五章的世界创建子菜单布局。
+
+3.4 设置场景（settings.tscn）
+
+    详见文档9第五章的设置子菜单布局。
+
+3.5 全知面板场景（global_panel.tscn）
+
+    详见文档9第三章的全知面板布局。
+
+
+================================================================================
+第四章   核心代码框架
+================================================================================
+
+4.1 主入口（main.gd）
+
+    挂载到主场景Main节点上。
+    ```gdscript
+    # main.gd
+    extends Node3D
+    
+    @onready var world_manager: WorldManager = $World
+    @onready var spectator_camera: SpectatorCamera = $Cameras/SpectatorCamera
+    @onready var player: PlayerController = $Player
+    
+    func _ready() -> void:
+        # 初始化世界
+        world_manager.generate_world()
+        # 设置初始摄像机
+        _set_mode(GameState.ObservationMode.SPECTATOR)
+    
+    func _process(delta: float) -> void:
+        # 时间更新
+        GameState.game_time += delta * GameState.get_effective_time_multiplier()
+        # 天气更新
+        $Weather.update_weather(delta)
+    
+    func _input(event: InputEvent) -> void:
+        if event.is_action_pressed("switch_avatar"):
+            _toggle_avatar_mode()
+        elif event.is_action_pressed("open_panel"):
+            $GlobalPanel.toggle()
+        elif event.is_action_pressed("pause"):
+            $PauseMenu.toggle()
+    
+    func _toggle_avatar_mode() -> void:
+        if GameState.current_mode == GameState.ObservationMode.AVATAR:
+            _set_mode(GameState.ObservationMode.SPECTATOR)
+        else:
+            _set_mode(GameState.ObservationMode.AVATAR)
+    
+    func _set_mode(mode: int) -> void:
+        GameState.current_mode = mode
+        match mode:
+            GameState.ObservationMode.SPECTATOR:
+                player.hide()
+                spectator_camera.make_current()
+                Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+            GameState.ObservationMode.AVATAR:
+                player.show()
+                player.activate()
+                Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+    ```
+
+4.2 世界管理器（world_manager.gd）
+
+    ```gdscript
+    # world_manager.gd
+    class_name WorldManager
+    extends Node3D
+    
+    var terrain_generator: TerrainGenerator = TerrainGenerator.new()
+    var tree_spawner: TreeSpawner = TreeSpawner.new()
+    var ore_spawner: OreSpawner = OreSpawner.new()
+    
+    func generate_world() -> void:
+        # 1. 生成地形
+        terrain_generator.generate_terrain_chunks(self)
+        # 2. 生成河流
+        # river_system.generate_rivers(self)
+        # 3. 生成植被
+        tree_spawner.spawn_all_trees(self)
+        # 4. 生成矿物
+        ore_spawner.spawn_all_ores(self)
+        # 5. 生成水体
+        # water_system.generate_water_bodies(self)
+        print("世界生成完毕")
+    ```
+
+4.3 角色控制器（player_controller.gd — 降临模式）
+
+    ```gdscript
+    # player_controller.gd
+    class_name PlayerController
+    extends CharacterBody3D
+    
+    @export var move_speed: float = 8.0
+    @export var jump_velocity: float = 6.0
+    @export var mouse_sensitivity: float = 0.3
+    
+    var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+    var held_item: Node3D = null
+    var held_item_name: String = ""
+    
+    @onready var camera_mount: Node3D = $CameraMount
+    @onready var spring_arm: SpringArm3D = $SpringArm3D
+    @onready var camera_3d: Camera3D = $SpringArm3D/Camera3D
+    
+    func _ready() -> void:
+        hide()
+    
+    func activate() -> void:
+        show()
+        camera_3d.make_current()
+    
+    func _physics_process(delta: float) -> void:
+        if GameState.current_mode != GameState.ObservationMode.AVATAR:
+            return
+        
+        # 重力
+        if not is_on_floor():
+            velocity.y -= gravity * delta
+        
+        # 移动输入
+        var input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
+        var direction = (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+        if direction:
+            velocity.x = direction.x * move_speed
+            velocity.z = direction.z * move_speed
+        else:
+            velocity.x = move_toward(velocity.x, 0, move_speed)
+            velocity.z = move_toward(velocity.z, 0, move_speed)
+        
+        move_and_slide()
+    
+    func _input(event: InputEvent) -> void:
+        if GameState.current_mode != GameState.ObservationMode.AVATAR:
+            return
+        
+        if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+            rotate_y(-event.relative.x * mouse_sensitivity * 0.01)
+            camera_mount.rotate_x(-event.relative.y * mouse_sensitivity * 0.01)
+            camera_mount.rotation.x = clampf(camera_mount.rotation.x, -PI/2, PI/2)
+        
+        if event.is_action_pressed("jump") and is_on_floor():
+            velocity.y = jump_velocity
+        
+        if event.is_action_pressed("interact"):
+            _on_interact()
+        
+        if event.is_action_pressed("drop_item"):
+            _drop_item()
+    
+    func _on_interact() -> void:
+        var space_state = get_world_3d().direct_space_state
+        var query = PhysicsRayQueryParameters3D.create(camera_3d.global_position, camera_3d.global_position - camera_3d.global_transform.basis.z * 3.0)
+        query.exclude = [self]
+        var result = space_state.intersect_ray(query)
+        if result:
+            var target = result.collider
+            if target.has_method("on_interact"):
+                target.on_interact(self)
+    
+    func _drop_item() -> void:
+        if held_item:
+            held_item.reparent(get_tree().current_scene)
+            held_item.global_position = global_position + Vector3.FORWARD * 1.5
+            held_item = null
+            held_item_name = ""
+    ```
+
+4.4 观察者摄像机（spectator_camera.gd）
+
+    详见文档9第一章1.1节。
+
+4.5 地形生成器（terrain_generator.gd）
+
+    ```gdscript
+    # terrain_generator.gd
+    class_name TerrainGenerator
+    extends RefCounted
+    
+    const CHUNK_SIZE: int = 50
+    
+    func generate_terrain_chunks(parent: Node3D) -> void:
+        # 为整个WORLD_SIZE范围生成地形网格
+        var surface_tool = SurfaceTool.new()
+        surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+        
+        var size = GameState.world_size
+        var step = 1.0
+        var rows = int(size / step) + 1
+        var cols = int(size / step) + 1
+        
+        # 生成顶点和颜色
+        for z in range(-size/2, size/2 + step, step):
+            for x in range(-size/2, size/2 + step, step):
+                var y = _get_height(x, z)
+                surface_tool.set_color(_get_terrain_color(y))
+                surface_tool.add_vertex(Vector3(x, y, z))
+        
+        # 生成索引
+        for r in range(rows - 1):
+            for c in range(cols - 1):
+                var i0 = r * cols + c
+                var i1 = r * cols + c + 1
+                var i2 = (r + 1) * cols + c
+                var i3 = (r + 1) * cols + c + 1
+                surface_tool.add_index(i0)
+                surface_tool.add_index(i2)
+                surface_tool.add_index(i1)
+                surface_tool.add_index(i1)
+                surface_tool.add_index(i2)
+                surface_tool.add_index(i3)
+        
+        surface_tool.generate_normals()
+        var mesh = surface_tool.commit()
+        
+        var mesh_instance = MeshInstance3D.new()
+        mesh_instance.mesh = mesh
+        
+        # 设置材质（顶点颜色着色器）
+        var mat = StandardMaterial3D.new()
+        mat.vertex_color_use_as_albedo = true
+        mesh_instance.set_surface_override_material(0, mat)
+        
+        # 添加碰撞体
+        var static_body = StaticBody3D.new()
+        var collision_shape = CollisionShape3D.new()
+        var shape = ConcavePolygonShape3D.new()
+        shape.set_faces(mesh.get_faces())
+        collision_shape.shape = shape
+        static_body.add_child(collision_shape)
+        mesh_instance.add_child(static_body)
+        
+        parent.add_child(mesh_instance)
+    
+    func _get_height(x: float, z: float) -> float:
+        # 使用NoiseUtil计算高度（与文档5一致）
+        var h1 = NoiseUtil.perlin_noise(x * 0.004, z * 0.004, 1) * 28.0
+        var h2 = NoiseUtil.perlin_noise(x * 0.02, z * 0.02, 2) * 10.0
+        var h3 = NoiseUtil.perlin_noise(x * 0.08, z * 0.08, 3) * 4.0
+        return h1 + h2 + h3
+    
+    func _get_terrain_color(y: float) -> Color:
+        if y < -1: return Color(0.71, 0.67, 0.47)    # 沙地
+        elif y < 2: return Color(0.75, 0.71, 0.55)    # 沙滩
+        elif y < 8: return Color(0.20, 0.59, 0.16)    # 草地
+        elif y < 18: return Color(0.27, 0.51, 0.18)   # 丘陵绿
+        elif y < 30: return Color(0.39, 0.43, 0.31)   # 岩石混合
+        elif y < 50: return Color(0.55, 0.55, 0.55)   # 山地灰
+        elif y < 65: return Color(0.78, 0.78, 0.82)   # 高山
+        else: return Color(0.96, 0.96, 0.98)           # 雪线
+    ```
+
+
+================================================================================
+第五章   关键数据结构定义
+================================================================================
+
+5.1 基因组（Genome — GDScript Resource）
+
+    ```gdscript
+    # genome.gd
+    class_name Genome
+    extends Resource
+    
+    @export var sex_chromosomes: String = "XX"  # "XX" 或 "XY"
+    @export var trait_genes: Dictionary = {
+        "body_size": 1.0,
+        "color_hue": 0.12,
+        "color_saturation": 0.5,
+        "symmetry": 0.9,
+        "curiosity": 0.5,
+        "aggression": 0.5,
+        "mirror_sensitivity": 0.5,
+        # ... 全部30+可遗传性状
+    }
+    
+    func get_sex() -> String:
+        return "female" if sex_chromosomes == "XX" else "male"
+    
+    static func recombine(male_genome: Genome, female_genome: Genome) -> Genome:
+        var child = Genome.new()
+        child.sex_chromosomes = "X" + ("X" if randi() % 2 == 0 else "Y")
+        for trait in child.trait_genes:
+            if randf() < 0.5:
+                child.trait_genes[trait] = male_genome.trait_genes[trait]
+            else:
+                child.trait_genes[trait] = female_genome.trait_genes[trait]
+            child.trait_genes[trait] += randf_range(-0.02, 0.02)
+        return child
+    ```
+
+5.2 记忆条目（MemoryEntry）
+
+    使用Dictionary存储，结构与原版一致：
+    ```gdscript
+    var memory_entry: Dictionary = {
+        "timestamp": 0.0,
+        "location": Vector3(),
+        "event": "",
+        "entities_involved": [],
+        "emotional_tag": 0.0,
+        "sensory_snapshot": PackedFloat32Array(),
+        "retrieval_count": 0
+    }
+    ```
+
+5.3 感官向量（SensoryVector）
+
+    使用PackedFloat32Array（58维），维度分配与原版一致。
+
+5.4 物质属性（MaterialData — GDScript Resource）
+
+    ```gdscript
+    # material_data.gd
+    class_name MaterialData
+    extends Resource
+    
+    @export var material_id: String = ""
+    @export var display_name: String = ""
+    @export var density: float = 1000.0
+    @export var hardness: float = 1.0
+    @export var elasticity: float = 0.5
+    @export var friction: float = 0.5
+    @export var break_threshold: float = 1000.0
+    @export var melting_point: float = 1000.0
+    @export var thermal_conductivity: float = 1.0
+    @export var toxicity: float = 0.0
+    @export var flammability: float = 0.0
+    @export var conductivity: float = 0.0
+    ```
+
+5.5 工具/武器数据（ToolData — GDScript Resource）
+
+    ```gdscript
+    # tool_data.gd
+    class_name ToolData
+    extends Resource
+    
+    @export var tool_id: String = ""
+    @export var display_name: String = ""
+    @export var mass: float = 1.0
+    @export var hardness: float = 3.0
+    @export var damage_base: float = 10.0
+    @export var damage_type: String = "blunt"
+    @export var durability: int = 100
+    @export var mining_power: float = 5.0
+    @export var chopping_power: float = 5.0
+    @export var texture_path: String = ""
+    @export var model_path: String = ""
+    ```
+
+
+================================================================================
+第六章   分阶段实施路线图（Godot版）
+================================================================================
+
+6.1 第0阶段：环境搭建（1天）
+
+    目标：Godot 4.x 项目创建完毕，基础目录结构就绪。
+    
+    具体步骤：
+        1. 下载Godot 4.x（godotengine.org），推荐4.2或更高版本。
+        2. 创建新项目，命名为"ahei_godot_project"。
+        3. 按第一章的目录树创建所有空文件夹。
+        4. 配置Autoload单例（GameState、EventBus）。
+        5. 创建project.godot中的基本设置（窗口大小、重力等）。
+    
+    验证：项目能在Godot编辑器中成功打开，无报错。
+
+6.2 第1阶段：3D世界+自由摄像机+地形（3-5天）
+
+    目标：生成连续高度场地形，能用WASD自由飞行观察。
+    
+    具体步骤：
+        1. 实现NoiseUtil.gd（柏林噪声工具）。
+        2. 实现TerrainGenerator.gd（生成地形网格，顶点着色）。
+        3. 创建main.tscn，添加World节点和SpectatorCamera节点。
+        4. 实现SpectatorCamera.gd（自由飞行摄像机）。
+        5. 添加Sky（WorldEnvironment）和基础光照。
+        6. 为地形添加碰撞体。
+    
+    验证：能看到彩色地形（绿草地、灰山、白雪顶），摄像机可自由飞行穿透地形。
+
+6.3 第2阶段：植被、矿物、水体放置（3-5天）
+
+    目标：在地形上程序化放置树木、灌木、草、矿物、岩石、河流。
+    
+    具体步骤：
+        1. 创建树的PackedScene（CylinderMesh树干 + ConeMesh树冠）。
+        2. 实现TreeSpawner.gd（按地形类型和密度放置树木）。
+        3. 实现BushSpawner.gd（多个Sphere聚合）。
+        4. 用MultiMeshInstance3D放置大量草。
+        5. 实现OreSpawner.gd（按海拔范围放置矿石簇）。
+        6. 放置随机旋转的不规则岩石。
+        7. 实现河流生成（沿梯度放置蓝色小球或线段）。
+    
+    验证：世界中有丰富的植被和矿物，河流从高山流向低地。
+
+6.4 第3阶段：玩家角色+降临模式+物理交互（4-7天）
+
+    目标：实现可切换的降临模式，玩家能用第一人称操控角色，与物体交互。
+    
+    具体步骤：
+        1. 创建PlayerController场景（CharacterBody3D + Camera3D）。
+        2. 实现WASD移动、空格跳跃、鼠标视角。
+        3. 实现Tab键切换观察者/降临模式。
+        4. 实现RayCast3D交互（E键破坏/捡起物体）。
+        5. 实现手持物品系统（Q键丢弃）。
+        6. 实现简单的物理拾取（Generic6DOFJoint3D或PinJoint3D）。
+        7. 添加准星（十字准心UI）。
+    
+    验证：能流畅地在观察者和降临模式间切换；第一人称下能砍树、挖矿。
+
+6.5 第4阶段：UI系统（主菜单、HUD、全知面板）（5-7天）
+
+    目标：完成所有UI界面。
+    
+    具体步骤：
+        1. 创建main_menu.tscn和MainMenuUI.gd。
+        2. 创建world_creation.tscn（世界创建面板）。
+        3. 创建settings.tscn（设置面板）。
+        4. 创建hud.tscn和HUDUI.gd（能量/体力/情绪显示）。
+        5. 创建global_panel.tscn和GlobalPanelUI.gd（全知面板）。
+        6. 创建pause_menu.tscn（暂停菜单）。
+        7. 实现SaveManager.gd的存档/读档功能。
+    
+    验证：主菜单能创建新世界、加载存档；游戏中G键打开面板可查看/修改数值。
+
+6.6 第5阶段：时间系统+昼夜+天气（4-6天）
+
+    目标：实现动态昼夜循环、季节变化、天气效果。
+    
+    具体步骤：
+        1. 实现GameState中的时间更新逻辑。
+        2. 实现sun_mover.gd（太阳围绕世界旋转）。
+        3. 配置WorldEnvironment的ProceduralSkyMaterial，实现昼夜变化。
+        4. 添加粒子系统实现雨、雪。
+        5. 实现天气的随机触发和影响（视觉距离、温度、湿度）。
+        6. 实现时间比UI调整（全知面板或快捷键）。
+    
+    验证：能看到日出日落、天气变化，时间加速功能正常。
+
+6.7 第6阶段：模组系统+跨模型适配（1-2周）
+
+    目标：实现完整的模组加载系统和模型切换适配。
+    
+    具体步骤：
+        1. 实现ModManager.gd（模组发现、加载、冲突处理）。
+        2. 实现Registry.gd和ModAPI.gd。
+        3. 创建示例模组（如copper_tools）。
+        4. 实现SkeletonMapper.gd（通用骨骼映射）。
+        5. 实现模型切换时的碰撞体自动重生成。
+        6. 实现装备/武器的自动挂载适配。
+        7. 测试切换模型后所有交互是否正常。
+    
+    验证：放入一个新模组文件夹，启动后新内容自动可用。
+
+6.8 第7阶段：AHEI智能体集成（待定，后期）
+
+    目标：将AHEI的大脑（Python/PyTorch）通过API与Godot连接，
+          让AHEI以自主智能体形式生活在世界中。
+    
+    具体步骤：
+        1. 在Python端启动WebSocket服务器，运行预测编码网络。
+        2. 在Godot端实现AHEIBrain.gd，作为WebSocket客户端。
+        3. 每帧：Godot发送感官向量→Python计算→返回行动指令→Godot执行。
+        4. 实现AHEI的身体模型、生理系统、情感系统与Python端的同步。
+        5. 实现种群管理、演化循环。
+        6. 实现AI教师连接器。
+    
+    验证：AHEI能自主觅食、躲避捕食者、社交、繁衍。
+
+
+================================================================================
+第七章   常见问题（FAQ）
+================================================================================
+
+Q：从Ursina换到Godot，哪些代码可以复用？
+A：所有的设计文档和算法逻辑都可以复用。需要重写的是API调用和节点创建部分。
+   Python的预测编码网络（PyTorch）完全保留，通过WebSocket与Godot通信。
+
+Q：Godot项目中的Python代码放在哪里？
+A：Python部分独立运行（PyTorch + WebSocket服务器），不在Godot项目内。
+   Godot通过WebSocketClient连接Python服务器，获取AI计算结果。
+
+Q：地形生成与Ursina版本有差异吗？
+A：算法完全一致（多层正弦波叠加），只是网格构建API不同
+   (SurfaceTool vs Ursina Mesh)。
+
+Q：模组系统在Godot中如何工作？
+A：模组放在mods/文件夹，包含mod_info.json和init.gd。
+   ModManager在启动时扫描所有模组，调用init.gd中的register(api)函数。
+
+Q：如何切换模型风格（几何体/二次元/写实）？
+A：在M键模型选择面板中切换。系统通过SkeletonMapper自动映射骨骼，
+   装备自动挂载到正确位置。切换后会有短暂的适应期。
+
+Q：性能在Godot中如何？
+A：Godot 4.x的Vulkan渲染器性能远超Ursina/Panda3D。
+   100个简单模型的AHEI + 地形 + 植被在RTX 5060上可稳定60FPS+。
+
+Q：分阶段开发中，每个阶段的验证标准是什么？
+A：每个阶段完成后必须满足：代码无报错、核心功能可手动测试、
+   输出日志符合预期、帧率在预算范围内。
+
+
+================================================================================
+第八章   给接手AI的启动指令
+================================================================================
+
+▌从头搭建Godot项目：
+“请根据AHEI十二份交接文档（Godot适配版），帮我搭建完整的Godot 4.x项目。
+第一步：创建项目目录结构和Autoload单例。
+第二步：实现文档5的地形生成器（terrain_generator.gd）和观察者摄像机。
+第三步：实现文档9的降临模式（player_controller.gd）。
+第四步：实现文档9的UI系统（主菜单、HUD、全知面板）。
+所有GDScript代码加详细中文注释，保持模块化。”
+
+▌在已有地形世界上叠加植被和矿物：
+“根据文档6，实现TreeSpawner、BushSpawner、OreSpawner等生成器，
+并将它们集成到WorldManager中。使用MultiMeshInstance3D优化大量草的性能。”
+
+▌接入AHEI智能体：
+“根据文档2和文档3，创建Python端的WebSocket服务器，
+运行预测编码网络。在Godot端创建AHEIBrain.gd作为客户端，
+每帧发送感官向量并接收行动指令。请给出完整的Python和GDScript代码。”
+
+▌需要调试：
+“当前Godot项目中的问题是[具体描述]。
+项目是AHEI智核（创建者：魏旭），基于Godot 4.x引擎。
+请先阅读十二份文档中的相关部分，帮我分析并修复。”
+
+
+================================================================================
+                            文档结束
+================================================================================
+
+创建者：魏旭
+日期：2026年4月30日
+
+十二份文档的Godot适配版已全部生成完毕：
+  需要重写的文档（已生成）：
+    文档5：世界地形与天体气象 (Godot版)
+    文档6：生态系统与植物矿物 (Godot版)
+    文档7：物质元素与物理系统 (Godot版)
+    文档9：交互、界面与降临模式 (Godot版)
+    文档10：模组系统与跨模型适配 (Godot版)
+    文档12：实施计划、代码框架与配置 (Godot版) ← 本文档
+
+  不需要重写的文档：
+    文档1：总纲、哲学与系统架构
+    文档2：身体与生理系统
+    文档3：感官与大脑系统
+    文档4：情感、社会与语言系统
+    文档8：化学系统与知识发现
+    文档11：视野、声音与生理反馈
+
+本文档已完全适配Godot 4.x引擎，所有实施细节均基于Godot的节点系统、
+GDScript和Resource架构。项目目录树、Autoload单例设计、核心代码框架
+和分阶段路线图均已针对Godot重新规划。
+================================================================================

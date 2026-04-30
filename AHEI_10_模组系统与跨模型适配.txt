@@ -1,0 +1,742 @@
+================================================================================
+                    AHEI (智核) 项目交接文档 - 文档10（Godot 4.x 引擎适配版）
+                    文档名称：模组系统与跨模型适配
+                    全称：Autonomous Homeostatic Embodied Intelligence
+                    中文：自主稳态具身智能
+                    简称：AHEI（读作“诶-嘿”）
+                    中文名：智核
+                    创建者：魏旭
+                    最后更新：2026年4月30日
+================================================================================
+
+⚠️ 致接手本项目的AI或开发者：
+    本文档是AHEI项目十二份交接文档的第十份（已完全适配Godot 4.x引擎），
+    涵盖模组系统完整设计（注册表、加载机制、API接口）、跨模型适配机制
+   （通用骨骼映射、碰撞体自动生成、装备自适应、器官适配）、以及通用规则引擎。
+    
+    本文档已完全替换原Ursina版本，模组加载基于Godot的Resource系统和文件解析，
+    骨骼适配基于Godot的Skeleton3D节点。
+    请结合文档7（物质元素与物理系统 Godot版）和其他文档一起阅读。
+
+
+=============================
+          完整目录
+=============================
+
+第一章   模组系统总览
+  1.1   设计目标
+  1.2   模组的物理结构
+  1.3   模组信息文件（mod_info.json）
+  1.4   模组初始化脚本（init.gd）—— Godot适配
+
+第二章   模组加载机制
+  2.1   加载流程
+  2.2   版本兼容性检查
+  2.3   依赖检查
+  2.4   加载优先级
+  2.5   冲突处理
+  2.6   加载日志
+
+第三章   核心注册表
+  3.1   注册表总览（Godot Autoload单例）
+  3.2   物品注册表
+  3.3   矿物注册表
+  3.4   植物注册表
+  3.5   动物/物种注册表
+  3.6   工具与武器注册表
+  3.7   建筑部件注册表
+  3.8   容器注册表
+  3.9   语言词汇注册表
+  3.10  材质注册表
+
+第四章   模组API接口
+  4.1   API总览
+  4.2   注册方法清单（GDScript实现）
+  4.3   查询方法
+  4.4   日志输出
+
+第五章   跨模型适配：通用骨骼映射
+  5.1   通用骨骼命名规范
+  5.2   骨骼扫描与映射流程（Skeleton3D节点）
+  5.3   回退策略
+  5.4   尺寸自适应
+
+第六章   跨模型适配：装备与武器挂载
+  6.1   装备挂载系统
+  6.2   武器握持适配
+  6.3   着装外观自适应
+
+第七章   跨模型适配：碰撞体与伤害判定
+  7.1   碰撞体自动生成
+  7.2   部位级伤害判定映射
+  7.3   不同模型的碰撞体重映射
+
+第八章   跨模型适配：器官与动作
+  8.1   器官自动检测与适配
+  8.2   动作重定向
+  8.3   切换模型后的适应期
+
+第九章   通用规则引擎
+  9.1   设计原理
+  9.2   物理交互统一判定
+  9.3   化学交互统一判定
+  9.4   新内容自动适配的保障
+
+
+================================================================================
+第一章  模组系统总览
+================================================================================
+
+1.1 设计目标
+
+    模组系统允许在不修改核心代码的情况下，向AHEI世界添加新内容。
+    在Godot中，模组通过特定的文件夹结构 + JSON配置文件 + GDScript注册脚本实现。
+    
+    可添加的内容：
+        - 新矿物、新金属、新合金
+        - 新植物、新动物、新物种
+        - 新工具、新武器、新防具
+        - 新建筑部件、新容器
+        - 新语言词条（中文或其他语言）
+        - 新物理材质（自定义密度、硬度等）
+        - 新加工工艺
+    
+    所有新内容注册后自动获得：
+        - 完整的物理属性
+        - 感官特征
+        - 可学习性
+        - 与已有世界所有系统的自动适配
+
+1.2 模组的物理结构
+
+    每个模组是一个独立的文件夹，存放在游戏根目录的 mods/ 目录下：
+
+    mods/
+    └── copper_tools/                  ← 模组文件夹
+        ├── mod_info.json              ← 模组信息文件（必需）
+        ├── init.gd                    ← 初始化脚本（必需，GDScript）
+        ├── textures/                  ← 纹理图片（可选）
+        │   ├── copper_ingot.png
+        │   └── copper_pickaxe.png
+        ├── models/                    ← 3D模型文件（可选）
+        │   ├── copper_furnace.glb
+        │   └── copper_sword.glb
+        └── sounds/                    ← 声音文件（可选）
+            └── copper_strike.ogg
+
+1.3 模组信息文件（mod_info.json）
+
+    这是每个模组的"身份证"，游戏通过它来识别模组。
+
+    {
+        "id": "copper_tools",
+        "name": "铜制工具模组",
+        "version": "1.0.0",
+        "author": "魏旭",
+        "description": "添加铜锭、铜斧、铜镐、铜剑等铜制工具",
+        "dependencies": [],
+        "min_game_version": "1.0.0",
+        "max_game_version": "2.0.0",
+        "load_order": 100,
+        "tags": ["tools", "metal", "copper"]
+    }
+
+    字段说明与之前版本保持不变。
+
+1.4 模组初始化脚本（init.gd）—— Godot适配
+
+    在Godot中，模组的初始化通过一个GDScript脚本完成，该脚本由ModManager加载并执行。
+    
+    每个模组的 init.gd 必须定义一个静态函数 `register(api)`，该函数接收
+    ModAPI实例作为参数，通过它向核心注册表注册新内容。
+
+    ```gdscript
+    # mods/copper_tools/init.gd
+    static func register(api: ModAPI) -> void:
+        # 注册新物品
+        api.register_item("copper_ingot", {
+            "name": "铜锭",
+            "texture": "copper_ingot.png",
+            "mass": 2.5,
+            "volume": 0.001,
+            "hardness": 3,
+            "stack_size": 64,
+            "material": "copper",
+            "tags": ["metal", "ingot", "smeltable"]
+        })
+        
+        # 注册新工具
+        api.register_tool("copper_pickaxe", {
+            "name": "铜镐",
+            "texture": "copper_pickaxe.png",
+            "mass": 3.0,
+            "hardness": 3.5,
+            "mining_power": 15,
+            "durability": 200
+        })
+        
+        # 注册新武器
+        api.register_weapon("copper_sword", {
+            "name": "铜剑",
+            "texture": "copper_sword.png",
+            "mass": 2.8,
+            "hardness": 3.5,
+            "damage_base": 18,
+            "damage_type": "slash",
+            "durability": 180
+        })
+        
+        # 注册冶炼配方
+        api.register_smelting_recipe("copper_ore_chunk", {
+            "output": "copper_ingot",
+            "output_count": 1,
+            "fuel_required": 1,
+            "temperature_min": 1085,
+            "time_required": 30
+        })
+        
+        # 注册可学词汇
+        api.register_word("铜", {
+            "sound": "copper.ogg",
+            "category": "material",
+            "related_item": "copper_ingot"
+        })
+    ```
+
+    与Ursina版本的核心区别：GDScript使用静态函数而非Python的 `register()`，
+    因为Godot不支持动态导入Python模块。模组脚本由ModManager加载后，
+    通过 `load()` 获取GDScript资源并调用其静态方法。
+
+
+================================================================================
+第二章  模组加载机制
+================================================================================
+
+2.1 加载流程
+
+    游戏启动时，ModManager（Autoload单例）执行以下步骤：
+
+    1. 扫描 `res://mods/` 目录，找到所有子文件夹。
+    2. 对每个子文件夹：
+       ├── 检查是否存在 mod_info.json
+       │   └── 不存在 → 跳过，输出警告日志
+       ├── 读取并解析 mod_info.json
+       │   └── JSON格式错误 → 跳过，输出错误日志
+       ├── 验证版本兼容性（检查min/max_game_version）
+       │   └── 不兼容 → 跳过，输出警告日志
+       ├── 检查依赖项（dependencies列表中的模组是否已标记为待加载）
+       │   └── 依赖未满足 → 跳过，输出错误日志
+       └── 标记为"待加载"
+    3. 按 load_order 排序所有待加载模组（数字越小越先加载）。
+    4. 逐个加载模组：
+       ├── 通过 `load("res://mods/" + folder + "/init.gd")` 加载GDScript
+       ├── 调用 `init_script.register(api)` 函数
+       │   └── 模组向核心注册表添加新条目
+       └── 记录加载成功日志
+    5. 加载完成，输出汇总信息。
+
+    GDScript参考代码：
+    ```gdscript
+    # ModManager.gd (Autoload)
+    extends Node
+    
+    var loaded_mods: Array = []
+    var failed_mods: Array = []
+    var registry: Registry = Registry.new()
+    var api: ModAPI = ModAPI.new(registry)
+    
+    func _ready() -> void:
+        _discover_and_load_all_mods()
+    
+    func _discover_and_load_all_mods() -> void:
+        var mods_folder = "res://mods/"
+        var dir = DirAccess.open(mods_folder)
+        if not dir:
+            print("[ModManager] mods/ 目录未找到，跳过模组加载")
+            return
+        
+        var mod_folders: Array = []
+        dir.list_dir_begin()
+        var folder_name = dir.get_next()
+        while folder_name != "":
+            if dir.current_is_dir() and not folder_name.begins_with("."):
+                var info_path = mods_folder + folder_name + "/mod_info.json"
+                if FileAccess.file_exists(info_path):
+                    mod_folders.append(folder_name)
+            folder_name = dir.get_next()
+        
+        # 读取所有模组信息并排序
+        var mod_infos: Array = []
+        for folder in mod_folders:
+            var info_path = mods_folder + folder + "/mod_info.json"
+            var file = FileAccess.open(info_path, FileAccess.READ)
+            var json_str = file.get_as_text()
+            var info = JSON.parse_string(json_str)
+            if info:
+                info["_folder"] = folder
+                mod_infos.append(info)
+        
+        mod_infos.sort_custom(func(a, b): return a.get("load_order", 100) < b.get("load_order", 100))
+        
+        # 逐个加载
+        for info in mod_infos:
+            var success = _load_mod(info)
+            var status = "✓" if success else "✗"
+            print("[ModManager] %s %s v%s" % [status, info["name"], info["version"]])
+        
+        print("[ModManager] 成功加载 %d 个模组，跳过 %d 个" % [loaded_mods.size(), failed_mods.size()])
+    
+    func _load_mod(info: Dictionary) -> bool:
+        var folder = info["_folder"]
+        var init_path = "res://mods/" + folder + "/init.gd"
+        if not FileAccess.file_exists(init_path):
+            failed_mods.append({"folder": folder, "reason": "missing_init"})
+            return false
+        
+        var init_script: GDScript = load(init_path)
+        if not init_script:
+            failed_mods.append({"folder": folder, "reason": "script_load_failed"})
+            return false
+        
+        # 调用注册函数
+        init_script.register(api)
+        loaded_mods.append(info)
+        return true
+    ```
+
+2.2 版本兼容性检查
+
+    比较模组的 min_game_version 和 max_game_version 与 GameState.game_version。
+    使用语义化版本比较函数（需要自行实现或使用第三方库）。
+
+2.3 依赖检查
+
+    模组的 dependencies 列表中列出的模组ID，必须已经存在于 loaded_mods 或
+    待加载列表中。如果任何依赖项缺失，该模组不加载。
+
+2.4 加载优先级
+
+    load_order 值越小越先加载。未指定的默认为100。
+
+2.5 冲突处理
+
+    两个模组注册相同ID的物品/矿物/工具等：先加载的保留，后加载的跳过并输出警告。
+    模组 init.gd 执行中抛出异常：该模组不加载，输出错误日志。
+
+2.6 加载日志
+
+    所有模组加载信息通过 print() 输出到控制台，同时在日志文件（user://logs/mod_loader.log）
+    中持久化。
+
+
+================================================================================
+第三章  核心注册表
+================================================================================
+
+3.1 注册表总览（Godot Autoload单例）
+
+    在Godot中，Registry作为Autoload单例存在：
+    ```gdscript
+    # Registry.gd (Autoload)
+    extends Node
+    
+    var items: Dictionary = {}              # 所有物品 {id: data}
+    var tools: Dictionary = {}              # 所有工具
+    var weapons: Dictionary = {}            # 所有武器
+    var armors: Dictionary = {}             # 所有防具
+    var minerals: Dictionary = {}           # 所有矿物
+    var plants: Dictionary = {}             # 所有植物
+    var animals: Dictionary = {}            # 所有动物/物种
+    var buildings: Dictionary = {}          # 所有建筑部件
+    var containers: Dictionary = {}         # 所有容器
+    var recipes: Dictionary = {}            # 所有制作工艺
+    var smelting_recipes: Dictionary = {}   # 所有冶炼配方
+    var words: Dictionary = {}              # 所有可学词汇
+    var materials: Dictionary = {}          # 所有自定义材质
+    var entity_types: Dictionary = {}       # 所有实体类型
+    ```
+
+3.2 物品注册表
+
+    存储所有可采集、可制作、可使用的物品。
+    数据结构与原版相同，用Dictionary存储。
+
+3.3 矿物注册表
+
+    mineral_id: 唯一标识
+    name, texture, hardness, spawn_terrain, spawn_depth, vein_size, drops,
+    density, color_hint, smelts_to, smelting_temp
+
+3.4 植物注册表
+
+    plant_id, name, type, spawn_terrain, min/max_altitude, min/max_temperature,
+    min/max_humidity, growth_days, regen_condition, harvestable_parts, density, hardness
+
+3.5 动物/物种注册表
+
+    entity_id, name, model, physics, physiology, senses, locomotion, diet,
+    reproduction, social, ai_type
+
+3.6 工具与武器注册表
+
+    tool_id, name, texture, mass, hardness, damage_base, damage_type, durability,
+    mining_power, chopping_power
+
+3.7 建筑部件注册表
+
+    building_id, name, texture, mass, volume, hardness, break_threshold, function
+
+3.8 容器注册表
+
+    container_id, name, model, capacity_volume, self_mass, material, can_hold_liquid
+
+3.9 语言词汇注册表
+
+    word, sound, category, related_item
+
+3.10 材质注册表
+
+    material_id, name, density, hardness, elasticity, friction, break_threshold,
+    melting_point, thermal_conductivity, toxicity, flammability, conductivity
+
+
+================================================================================
+第四章  模组API接口
+================================================================================
+
+4.1 API总览
+
+    游戏向模组提供的api对象（ModAPI类）包含完整的注册和查询方法。
+
+4.2 注册方法清单（GDScript实现）
+
+    ```gdscript
+    # ModAPI.gd
+    class_name ModAPI
+    extends RefCounted
+    
+    var registry: Registry
+    
+    func _init(_registry: Registry) -> void:
+        registry = _registry
+    
+    func register_item(item_id: String, data: Dictionary) -> void:
+        if not registry.items.has(item_id):
+            registry.items[item_id] = data
+        else:
+            printerr("[ModAPI] 物品ID冲突: ", item_id)
+    
+    func register_tool(tool_id: String, data: Dictionary) -> void:
+        if not registry.tools.has(tool_id):
+            registry.tools[tool_id] = data
+    
+    func register_weapon(weapon_id: String, data: Dictionary) -> void:
+        if not registry.weapons.has(weapon_id):
+            registry.weapons[weapon_id] = data
+    
+    func register_armor(armor_id: String, data: Dictionary) -> void:
+        if not registry.armors.has(armor_id):
+            registry.armors[armor_id] = data
+    
+    func register_mineral(mineral_id: String, data: Dictionary) -> void:
+        if not registry.minerals.has(mineral_id):
+            registry.minerals[mineral_id] = data
+    
+    func register_plant(plant_id: String, data: Dictionary) -> void:
+        if not registry.plants.has(plant_id):
+            registry.plants[plant_id] = data
+    
+    func register_animal(animal_id: String, data: Dictionary) -> void:
+        if not registry.animals.has(animal_id):
+            registry.animals[animal_id] = data
+    
+    func register_building(building_id: String, data: Dictionary) -> void:
+        if not registry.buildings.has(building_id):
+            registry.buildings[building_id] = data
+    
+    func register_container(container_id: String, data: Dictionary) -> void:
+        if not registry.containers.has(container_id):
+            registry.containers[container_id] = data
+    
+    func register_recipe(output_id: String, inputs: Array, method: String) -> void:
+        registry.recipes[output_id] = {"inputs": inputs, "method": method}
+    
+    func register_smelting_recipe(input_id: String, output_data: Dictionary) -> void:
+        registry.smelting_recipes[input_id] = output_data
+    
+    func register_word(word: String, data: Dictionary) -> void:
+        if not registry.words.has(word):
+            registry.words[word] = data
+    
+    func register_material(material_id: String, data: Dictionary) -> void:
+        if not registry.materials.has(material_id):
+            registry.materials[material_id] = data
+    
+    func register_entity_type(entity_id: String, data: Dictionary) -> void:
+        if not registry.entity_types.has(entity_id):
+            registry.entity_types[entity_id] = data
+    ```
+
+4.3 查询方法
+
+    ```gdscript
+    func get_existing_item(item_id: String) -> Dictionary:
+        return registry.items.get(item_id, {})
+    
+    func get_existing_material(mat_id: String) -> Dictionary:
+        return registry.materials.get(mat_id, {})
+    
+    func get_loaded_mods() -> Array:
+        return ModManager.loaded_mods if ModManager else []
+    
+    func get_game_version() -> String:
+        return GameState.game_version if GameState else "1.0.0"
+    ```
+
+4.4 日志输出
+
+    ```gdscript
+    func log(message: String, level: String = "info") -> void:
+        match level:
+            "warning": printerr("[ModAPI WARNING] ", message)
+            "error": printerr("[ModAPI ERROR] ", message)
+            _: print("[ModAPI] ", message)
+    ```
+
+
+================================================================================
+第五章  跨模型适配：通用骨骼映射
+================================================================================
+
+5.1 通用骨骼命名规范
+
+    所有模型（程序化生成的几何体、二次元.glb、写实.glb等）必须遵守
+    或可通过映射表适配到以下通用骨骼命名体系：
+
+    头部：Head / head
+    颈部：Neck / neck
+    躯干：Spine / spine_02 / torso
+    左上臂：UpperArm_L / arm_L
+    左前臂：ForeArm_L / forearm_L
+    左手：Hand_L / hand_L
+    右手：Hand_R / hand_R
+    左大腿：Thigh_L / thigh_L
+    左小腿：Shin_L / shin_L
+    左脚：Foot_L / foot_L
+    右脚：Foot_R / foot_R
+    （还有手指、脚趾等更细粒度的骨骼）
+
+5.2 骨骼扫描与映射流程（Skeleton3D节点）
+
+    在Godot中，模型导入后生成的Skeleton3D节点包含所有骨骼。
+    通过遍历Skeleton3D的骨骼列表，将每根骨骼的名称与通用骨骼表进行匹配。
+
+    GDScript示例：
+    ```gdscript
+    # SkeletonMapper.gd
+    class_name SkeletonMapper
+    extends RefCounted
+    
+    const BONE_MAP: Dictionary = {
+        "head": ["Head", "head", "skull"],
+        "neck": ["Neck", "neck"],
+        "torso": ["Spine", "spine_02", "spine", "torso"],
+        "l_upper_arm": ["UpperArm_L", "arm_L", "left_upper_arm"],
+        "l_forearm": ["ForeArm_L", "forearm_L", "left_forearm"],
+        "l_hand": ["Hand_L", "hand_L", "left_hand"],
+        "r_hand": ["Hand_R", "hand_R", "right_hand"],
+        "l_thigh": ["Thigh_L", "thigh_L", "left_thigh"],
+        "l_shin": ["Shin_L", "shin_L", "left_shin"],
+        "l_foot": ["Foot_L", "foot_L", "left_foot"],
+        "r_foot": ["Foot_R", "foot_R", "right_foot"],
+    }
+    
+    func map_skeleton(skeleton: Skeleton3D) -> Dictionary:
+        var mapping: Dictionary = {}
+        var bone_count = skeleton.get_bone_count()
+        for i in range(bone_count):
+            var bone_name = skeleton.get_bone_name(i)
+            var generic_name = _find_generic_name(bone_name)
+            if generic_name:
+                mapping[generic_name] = i  # 存储骨骼索引
+        return mapping
+    
+    func _find_generic_name(bone_name: String) -> String:
+        for generic_name in BONE_MAP:
+            for candidate in BONE_MAP[generic_name]:
+                if bone_name.to_lower().contains(candidate.to_lower()):
+                    return generic_name
+        return ""
+    ```
+
+5.3 回退策略
+
+    如果新模型缺少某根关键骨骼（如没有手指骨骼）：
+        - 功能回退：将需要手指执行的动作回退到手腕（l_hand/r_hand）执行
+        - 挂载回退：将装备挂载点从手指回退到手掌，手掌不存在则回退到手臂，依此类推
+    
+    如果新模型有额外的骨骼（如翅膀、尾巴）：
+        - 额外骨骼保留但不影响核心功能
+        - 如果模组注册了对应功能（如飞行），额外骨骼自动激活
+
+5.4 尺寸自适应
+
+    装备尺寸按目标骨骼的全局缩放自动调整。
+    如果目标骨骼比默认大→装备放大；如果比默认小→装备缩小。
+    通过获取骨骼的rest_pose或计算两个关节间的距离来推算比例。
+
+
+================================================================================
+第六章  跨模型适配：装备与武器挂载
+================================================================================
+
+6.1 装备挂载系统
+
+    装备（衣服、盔甲、背包等）不是绑定到特定模型，
+    而是绑定到通过骨骼映射表找到的通用骨骼名称上。
+    
+    挂载流程：
+        1. 获取角色模型的Skeleton3D节点
+        2. 使用SkeletonMapper获取骨骼映射表
+        3. 从映射表中查找目标骨骼的索引
+        4. 如果找到→将装备作为该骨骼的子节点挂载
+        5. 如果未找到→沿骨骼层级向上回溯到最近的可用父骨骼
+        6. 按骨骼全局缩放自动调整装备的scale
+
+6.2 武器握持适配
+
+    握持点默认使用手掌骨骼（Hand_L / Hand_R）。
+    武器模型上预先定义一个握持点Marker3D。
+    当AHEI拿起武器时，将武器的握持点与手掌对齐，然后将武器作为手掌的子节点。
+    
+    释放武器时，解除父子关系，恢复武器的独立物理状态。
+
+6.3 着装外观自适应
+
+    装备的外观随角色模型的风格自动变化：
+        几何体模型（程序化生成）：装备渲染为简化几何体（如Box、Cylinder）
+        卡通/二次元模型：装备渲染为与模型匹配的纹理风格
+        写实模型：装备渲染为对应精度的3D装备模型
+    
+    如果风格不匹配，使用最接近的预设风格作为回退。
+    
+    装备可被染色（染料来自染料灌木或矿物提取）。
+    染色后装备的颜色参数永久改变，即使切换模型也保留。
+
+
+================================================================================
+第七章  跨模型适配：碰撞体与伤害判定
+================================================================================
+
+7.1 碰撞体自动生成
+
+    模型切换后，系统根据新模型的骨骼位置和大小，
+    为每个功能部位重新生成碰撞体（CollisionShape3D）。
+    
+    功能部位划分（不受模型外观影响）：
+        头部、躯干、左上臂、左前臂、左手、
+        右上臂、右前臂、右手、
+        左大腿、左小腿、左脚、
+        右大腿、右小腿、右脚
+    
+    每个部位的碰撞体尺寸由对应骨骼的长度和scale自动计算。
+
+7.2 部位级伤害判定映射
+
+    受伤判定按功能部位进行，不受模型外观影响。
+    头部的damage_weight永远是3.0（最高）。
+    
+    攻击命中时的判定流程：
+        1. 从碰撞信号中获取被命中的CollisionShape3D
+        2. 查询该碰撞体对应的功能部位名称
+        3. 查找该部位的伤害权重
+        4. 计算加权伤害
+
+7.3 不同模型的碰撞体重映射
+
+    切换到体型差异较大的模型时：
+        - 所有碰撞盒尺寸按新模型重新生成
+        - 功能部位映射保持不变
+        - 新增部位（如尾巴）自动生成碰撞体
+        - 缺失部位对应的功能判定回退到父部位（如无前臂则回退到上臂）
+
+
+================================================================================
+第八章  跨模型适配：器官与动作
+================================================================================
+
+8.1 器官自动检测与适配
+
+    生殖器官适配：
+        扫描模型骨骼，查找标记为"genital"或包含类似关键字的骨骼节点
+        如果找到→将性器官功能绑定到该骨骼
+        如果未找到→启用功能替代模式（通过距离检测而非物理碰撞）
+    
+    其他器官同理：按骨骼名称或位置特征自动检测。
+
+8.2 动作重定向
+
+    当AI或玩家发出动作指令（如"举起右手到45°"）时，
+    系统通过SkeletonMapper将通用关节名转换为目标模型的骨骼索引，
+    然后考虑该关节的活动范围限制，将目标角度映射到实际关节的活动范围内。
+    
+    这使得同一组动作指令可以驱动完全不同体型的角色。
+
+8.3 切换模型后的适应期
+
+    模型切换后，化身会经历短暂的"身体失调期"：
+        感官输入骤变→预测误差飙升
+        本体感觉全乱→小脑运动程序库大半失效
+    
+    外在表现：僵直→笨拙尝试→摔倒→慢慢恢复
+    适应时间：身体结构相似→几秒到一分钟；结构完全不同→数小时（游戏时间）
+
+
+================================================================================
+第九章  通用规则引擎
+================================================================================
+
+9.1 设计原理
+
+    通用规则引擎是整个项目最核心的设计原则之一。
+    引擎只认数值和属性，不关心具体是什么物质。
+    任何新添加的物质，只要正确注册了物理和化学属性，就能自动适配所有已有交互。
+
+9.2 物理交互统一判定
+
+    两个物体碰撞时：
+        1. 读取两者的MaterialData
+        2. 硬度比较：硬度高的一方主导破坏
+        3. 破坏判定：冲击力 > break_threshold？→碎裂/变形
+        4. 压强计算：力/接触面积→割伤还是淤伤
+        5. 动量交换：按质量和弹性分配碰撞后速度
+    
+    这个逻辑对所有物质通用。
+
+9.3 化学交互统一判定
+
+    两个物质在特定条件下接触时：
+        1. 读取两者的化学属性
+        2. 查找化学规则数据库中的匹配条目
+        3. 检查反应条件（温度、催化剂等）
+        4. 如果匹配→生成产物列表；不匹配→两者不变
+
+9.4 新内容自动适配的保障
+
+    只要模组注册新内容时正确填写了属性表，新内容就能自动适配：
+        物理碰撞、感官感知、知识学习、工艺加工。
+    
+    这就是"写一次属性，适配全宇宙"的模组系统核心承诺。
+
+
+================================================================================
+                            文档结束
+================================================================================
+
+创建者：魏旭
+日期：2026年4月30日
+
+本文档已完全适配Godot 4.x引擎，模组系统基于GDScript + JSON配置，
+骨骼适配基于Skeleton3D和SkeletonMapper，装备挂载基于通用骨骼命名规范。
+与原Ursina版本功能完全一致，技术细节已针对Godot架构优化。
+================================================================================
